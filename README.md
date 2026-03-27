@@ -1,6 +1,12 @@
-# IP Fraud Checker cho dải IP 103.94.16.0/24
+# IP Fraud Checker cho dải IP tùy chỉnh
 
-Tool Python này dùng để kiểm tra định kỳ `fraud score` của các địa chỉ IP trong dải `103.94.16.0/24` thông qua dịch vụ [IP2Location](https://www.ip2location.com/), sau đó xuất kết quả ra file Excel.
+Tool Python này dùng để kiểm tra định kỳ `fraud score` của các địa chỉ IP trong một dải subnet thông qua dịch vụ [IP2Location](https://www.ip2location.com/), sau đó xuất kết quả ra file Excel.
+
+Tool hiện hỗ trợ cấu hình subnet theo 3 mức ưu tiên:
+
+1. truyền trực tiếp bằng tham số `--subnet`
+2. sửa file `config.json`
+3. nếu không có 2 cách trên thì dùng `DEFAULT_SUBNET` trong code
 
 Tool hỗ trợ 2 cách lấy dữ liệu:
 
@@ -18,7 +24,7 @@ Tool hỗ trợ 2 cách lấy dữ liệu:
 
 ## 1. Tính năng chính
 
-- Random từ **10 đến 20 IP** trong dải `103.94.16.0/24`
+- Random từ **10 đến 20 IP** trong dải subnet đang cấu hình
 - Hoặc kiểm tra **toàn bộ IP host** trong dải
 - Lấy các thông tin chính:
   - IP Address
@@ -34,13 +40,14 @@ Tool hỗ trợ 2 cách lấy dữ liệu:
 - Xuất kết quả ra file **Excel `.xlsx`**
 - Có **sheet tổng hợp Summary**
 - Hỗ trợ **chạy định kỳ theo số phút**
-- Có thể đổi sang dải IP khác nếu cần
+- Có thể đổi sang dải IP khác trong code hoặc qua CLI
 
 ## 2. Cấu trúc file
 
 Các file chính trong thư mục:
 
 - [ip_fraud_checker.py](ip_fraud_checker.py): file Python chính của tool
+- [config.json](config.json): file cấu hình subnet mặc định không cần sửa code
 - [setup.bat](setup.bat): script cài đặt môi trường và package
 - [requirements.txt](requirements.txt): danh sách package cần cài
 - [output/](output): nơi chứa file Excel kết quả sau khi chạy
@@ -132,7 +139,8 @@ Tool cần các package sau:
 
 Lệnh dưới đây sẽ:
 
-- random từ 10 đến 20 IP trong dải `103.94.16.0/24`
+- random từ 10 đến 20 IP trong dải lấy từ `config.json` nếu có
+- nếu `config.json` không có giá trị thì dùng `DEFAULT_SUBNET` trong code
 - dùng chế độ scraping
 - xuất ra file Excel
 
@@ -206,9 +214,61 @@ python ip_fraud_checker.py --schedule 30 --api-key YOUR_API_KEY
 
 ### 6.6. Đổi dải IP cần kiểm tra
 
+#### Cách 1: Sửa `config.json` (khuyến nghị)
+
+Mở file [config.json](config.json) và sửa giá trị:
+
+```json
+{
+   "default_subnet": "103.94.16.0/24"
+}
+```
+
+Ví dụ đổi sang dải khác:
+
+```json
+{
+   "default_subnet": "10.10.10.0/24"
+}
+```
+
+Sau đó chạy lại:
+
+```bat
+python ip_fraud_checker.py
+```
+
+Tool sẽ tự lấy subnet mới từ `config.json` mà không cần sửa code.
+
+#### Cách 2: Sửa trực tiếp trong code
+
+Mở file [ip_fraud_checker.py](ip_fraud_checker.py) và sửa dòng cấu hình mặc định:
+
+```python
+DEFAULT_SUBNET = "103.94.16.0/24"
+```
+
+Ví dụ nếu muốn đổi sang dải khác:
+
+```python
+DEFAULT_SUBNET = "10.10.10.0/24"
+```
+
+Sau khi sửa, chỉ cần chạy lại:
+
+```bat
+python ip_fraud_checker.py
+```
+
+Khi đó tool sẽ dùng dải mới làm mặc định nếu `config.json` không có giá trị và bạn không truyền `--subnet`.
+
+#### Cách 3: Truyền trực tiếp khi chạy
+
 ```bat
 python ip_fraud_checker.py --subnet 10.10.10.0/24
 ```
+
+Tham số này sẽ ghi đè cả `config.json` lẫn `DEFAULT_SUBNET` chỉ cho lần chạy hiện tại.
 
 ---
 
@@ -234,25 +294,25 @@ python ip_fraud_checker.py --count 10 --output output\bao_cao_fraud.xlsx
 ### Ví dụ 1: Chạy nhanh 10 IP bằng scraping
 
 ```bat
-python ip_fraud_checker.py --count 10
+python ip_fraud_checker.py --count 10 --subnet 10.10.10.0/24
 ```
 
 ### Ví dụ 2: Chạy 20 IP bằng API
 
 ```bat
-python ip_fraud_checker.py --count 20 --api-key YOUR_API_KEY
+python ip_fraud_checker.py --count 20 --api-key YOUR_API_KEY --subnet 10.10.10.0/24
 ```
 
 ### Ví dụ 3: Chạy toàn bộ dải IP và lưu file riêng
 
 ```bat
-python ip_fraud_checker.py --all --api-key YOUR_API_KEY --output output\full_scan.xlsx
+python ip_fraud_checker.py --all --api-key YOUR_API_KEY --subnet 10.10.10.0/24 --output output\full_scan.xlsx
 ```
 
 ### Ví dụ 4: Chạy định kỳ mỗi 2 giờ
 
 ```bat
-python ip_fraud_checker.py --schedule 120 --api-key YOUR_API_KEY
+python ip_fraud_checker.py --schedule 120 --api-key YOUR_API_KEY --subnet 10.10.10.0/24
 ```
 
 ## 9. File kết quả Excel
@@ -332,6 +392,7 @@ Theo thông tin từ trang dịch vụ, gói free có thể đủ cho nhu cầu 
 
 ## 13. Một số lưu ý quan trọng
 
+- Thứ tự ưu tiên cấu hình subnet là: `--subnet` -> `config.json` -> `DEFAULT_SUBNET` trong code.
 - Tool scraping phụ thuộc vào cấu trúc HTML của website. Nếu website thay đổi giao diện, phần scraping có thể cần cập nhật.
 - Khi chạy quá nhiều request liên tiếp bằng scraping, website có thể giới hạn truy cập tạm thời.
 - Khi dùng `--all`, nên ưu tiên API để tiết kiệm thời gian.
@@ -399,7 +460,7 @@ Cách xử lý tốt nhất:
 
 ## 16. Gợi ý vận hành thực tế
 
-Nếu mục tiêu là kiểm tra định kỳ fraud score của dải `103.94.16.0/24`, cách chạy phù hợp là:
+Nếu mục tiêu là kiểm tra định kỳ fraud score cho một dải IP nội bộ hoặc dải IP public của bạn, cách chạy phù hợp là:
 
 ### Phương án nhẹ:
 

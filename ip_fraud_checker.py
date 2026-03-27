@@ -1,21 +1,22 @@
 """
 IP Fraud Score Checker Tool
-============================
-Kiểm tra fraud score của các IP trong dải 103.94.16.0/24 từ ip2location.com
+===========================
+Kiểm tra fraud score của các IP trong một dải subnet cấu hình được từ ip2location.com
 
 Hỗ trợ 2 phương pháp:
-  1. API ip2location.io (nhanh, ổn định - cần free API key)
-  2. Web scraping trang demo (không cần API key, chậm hơn)
+    1. API ip2location.io (nhanh, ổn định - cần free API key)
+    2. Web scraping trang demo (không cần API key, chậm hơn)
 
 Đăng ký free API key tại: https://www.ip2location.io/sign-up
-  -> Free plan: 200 lookups/ngày (đủ cho nhu cầu 10-20 IP)
+    -> Free plan: 200 lookups/ngày (đủ cho nhu cầu 10-20 IP)
 
 Cách dùng:
-  python ip_fraud_checker.py                        # Web scraping, 10-20 random IPs
-  python ip_fraud_checker.py --api-key YOUR_KEY      # Dùng API
-  python ip_fraud_checker.py --count 15              # Chỉ định số IP cụ thể
-  python ip_fraud_checker.py --all                   # Check tất cả 256 IP (chỉ nên dùng với API)
-  python ip_fraud_checker.py --schedule 60           # Tự động chạy mỗi 60 phút
+    python ip_fraud_checker.py                          # Web scraping, 10-20 random IPs
+    python ip_fraud_checker.py --api-key YOUR_KEY      # Dùng API
+    python ip_fraud_checker.py --count 15              # Chỉ định số IP cụ thể
+    python ip_fraud_checker.py --all                   # Check tất cả IP host (chỉ nên dùng với API)
+    python ip_fraud_checker.py --subnet 10.10.10.0/24  # Dải IP tùy chỉnh
+    python ip_fraud_checker.py --schedule 60           # Tự động chạy mỗi 60 phút
 """
 
 import argparse
@@ -40,9 +41,10 @@ from openpyxl.utils import get_column_letter
 # Configuration
 # ============================================================================
 
-SUBNET = "103.94.16.0/24"
+DEFAULT_SUBNET = "103.94.16.0/24"
 DEFAULT_MIN_IPS = 10
 DEFAULT_MAX_IPS = 20
+CONFIG_FILE = Path(__file__).parent / "config.json"
 
 # API endpoint
 API_URL = "https://api.ip2location.io"
@@ -75,19 +77,69 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_config(config_path: Path = CONFIG_FILE) -> dict:
+    """Đọc cấu hình từ file JSON nếu có."""
+    if not config_path.exists():
+        logger.info(
+            f"Không tìm thấy file cấu hình {config_path.name}, dùng cấu hình mặc định trong code"
+        )
+        return {}
+
+    try:
+        with config_path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        if not isinstance(data, dict):
+            logger.warning(
+                f"File {config_path.name} không đúng định dạng object JSON, bỏ qua cấu hình"
+            )
+            return {}
+
+        logger.info(f"Đã nạp cấu hình từ {config_path.name}")
+        return data
+    except json.JSONDecodeError as error:
+        logger.warning(
+            f"Không đọc được {config_path.name} do JSON không hợp lệ: {error}. Dùng mặc định trong code"
+        )
+        return {}
+    except OSError as error:
+        logger.warning(
+            f"Không đọc được {config_path.name}: {error}. Dùng mặc định trong code"
+        )
+        return {}
+
+
+def resolve_subnet(cli_subnet: str | None, config: dict | None = None) -> str:
+    """Xác định subnet theo thứ tự ưu tiên: CLI > config.json > code."""
+    if cli_subnet:
+        return cli_subnet
+
+    if config:
+        configured_subnet = config.get("default_subnet")
+        if isinstance(configured_subnet, str) and configured_subnet.strip():
+            return configured_subnet.strip()
+
+    return DEFAULT_SUBNET
+
+
+def validate_subnet(subnet: str) -> str:
+    """Validate subnet và trả về chuỗi chuẩn hóa."""
+    return str(ipaddress.ip_network(subnet, strict=False))
+
+
 # ============================================================================
 # IP Generation
 # ============================================================================
 
 
-def get_all_ips(subnet: str = SUBNET) -> list[str]:
+def get_all_ips(subnet: str = DEFAULT_SUBNET) -> list[str]:
     """Lấy tất cả IP host trong dải subnet."""
     network = ipaddress.ip_network(subnet, strict=False)
     return [str(ip) for ip in network.hosts()]
 
 
 def get_random_ips(
-    count: int | None = None, subnet: str = SUBNET
+    count: int | None = None, subnet: str = DEFAULT_SUBNET
 ) -> list[str]:
     """Random một số lượng IP từ dải subnet."""
     all_ips = get_all_ips(subnet)
@@ -337,7 +389,9 @@ def check_ips(ip_list: list[str], api_key: str | None = None) -> list[dict]:
 # ============================================================================
 
 
-def export_to_excel(results: list[dict], output_path: Path | None = None) -> Path:
+def export_to_excel(
+    results: list[dict], subnet: str, output_path: Path | None = None
+) -> Path:
     """Xuất kết quả ra file Excel với formatting đẹp."""
     if not results:
         logger.warning("Không có kết quả để xuất!")
@@ -381,7 +435,7 @@ def export_to_excel(results: list[dict], output_path: Path | None = None) -> Pat
     ws.merge_cells("A1:O1")
     title_cell = ws["A1"]
     title_cell.value = (
-        f"IP Fraud Score Report - Dải {SUBNET} - "
+        f"IP Fraud Score Report - Dải {subnet} - "
         f"Ngày: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
     )
     title_cell.font = Font(name="Calibri", bold=True, size=14, color="2F5496")
@@ -490,7 +544,7 @@ def export_to_excel(results: list[dict], output_path: Path | None = None) -> Pat
     summary_data = [
         ("Tổng số IP kiểm tra", len(results), ""),
         ("IP lấy thành công fraud score", len(scores), ""),
-        ("Dải IP", SUBNET, ""),
+        ("Dải IP", subnet, ""),
         ("Thời gian kiểm tra", datetime.now().strftime("%d/%m/%Y %H:%M:%S"), ""),
         ("", "", ""),
         ("--- Fraud Score Statistics ---", "", ""),
@@ -586,20 +640,21 @@ def run_scheduled(interval_minutes: int, **kwargs):
 
 
 def run_once(
+    subnet: str = DEFAULT_SUBNET,
     api_key: str | None = None,
     count: int | None = None,
     check_all: bool = False,
     output_path: Path | None = None,
 ) -> Path | None:
     """Chạy kiểm tra 1 lần."""
-    logger.info(f"🚀 Bắt đầu kiểm tra fraud score cho dải {SUBNET}")
+    logger.info(f"🚀 Bắt đầu kiểm tra fraud score cho dải {subnet}")
 
     # Chọn IP
     if check_all:
-        ip_list = get_all_ips()
+        ip_list = get_all_ips(subnet)
         logger.info(f"Chế độ: Kiểm tra TẤT CẢ {len(ip_list)} IP")
     else:
-        ip_list = get_random_ips(count)
+        ip_list = get_random_ips(count, subnet)
         logger.info(
             f"Chế độ: Random {len(ip_list)} IP "
             f"(từ {DEFAULT_MIN_IPS}-{DEFAULT_MAX_IPS})"
@@ -610,7 +665,7 @@ def run_once(
 
     # Xuất Excel
     if results:
-        return export_to_excel(results, output_path)
+        return export_to_excel(results, subnet, output_path)
     else:
         logger.error("Không có kết quả nào! Kiểm tra lại kết nối mạng hoặc API key.")
         return None
@@ -630,7 +685,7 @@ Ví dụ:
   python ip_fraud_checker.py                          # Scraping, 10-20 random IPs
   python ip_fraud_checker.py --api-key YOUR_KEY       # Dùng API (khuyến nghị)
   python ip_fraud_checker.py --count 15               # Chỉ định số lượng IP
-  python ip_fraud_checker.py --all --api-key KEY      # Check tất cả 256 IP
+    python ip_fraud_checker.py --all --api-key KEY      # Check tất cả IP host
   python ip_fraud_checker.py --schedule 60            # Chạy mỗi 60 phút
   python ip_fraud_checker.py --subnet 103.94.16.0/24  # Dải IP tùy chỉnh
 
@@ -659,8 +714,11 @@ Ví dụ:
     parser.add_argument(
         "--subnet",
         type=str,
-        default=SUBNET,
-        help=f"Dải IP cần kiểm tra (mặc định: {SUBNET})",
+        default=None,
+        help=(
+            "Dải IP cần kiểm tra. Độ ưu tiên: --subnet > config.json > "
+            f"DEFAULT_SUBNET trong code ({DEFAULT_SUBNET})"
+        ),
     )
     parser.add_argument(
         "--schedule",
@@ -681,11 +739,14 @@ Ví dụ:
 def main():
     args = parse_args()
 
-    # Update global subnet if specified
-    global SUBNET
-    if args.subnet != SUBNET:
-        SUBNET = args.subnet
-        logger.info(f"Dải IP: {SUBNET}")
+    config = load_config()
+    try:
+        subnet = validate_subnet(resolve_subnet(args.subnet, config))
+    except ValueError as error:
+        logger.error(f"Dải IP không hợp lệ: {error}")
+        sys.exit(1)
+
+    logger.info(f"Dải IP đang dùng: {subnet}")
 
     # Validate
     if args.all and not args.api_key:
@@ -697,6 +758,7 @@ def main():
     output_path = Path(args.output) if args.output else None
 
     kwargs = {
+        "subnet": subnet,
         "api_key": args.api_key,
         "count": args.count,
         "check_all": args.all,
