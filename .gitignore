@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+output/
+*.pyc
+*.pyo
+*.pyd
+*.xlsx
+*.log
+.vscode/
